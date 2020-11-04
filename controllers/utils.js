@@ -141,12 +141,14 @@ module.exports.getGithubFile = function (path, branch) {
   return requestWithAuth(`GET ${url}`, { branch });
 };
 
-module.exports.createGithubFile = function (path, branch, content) {
+module.exports.createGithubFile = function (path, branch, content, sha = undefined) {
   const url = `https://api.github.com/repos/${config.githubFork}/contents/${path}`;
-  const message = `Création de fichier ${path} sur la branche ${branch}`;
+  const message = `${sha ? 'Mise à jour' : 'Création'} de fichier ${path} sur la branche ${branch}`;
   content = Buffer.from(content, 'utf-8').toString('base64');
 
-  return requestWithAuth(`PUT ${url}`, { message, content, branch });
+  return requestWithAuth(`PUT ${url}`, {
+    message, content, sha, branch,
+  });
 };
 
 module.exports.makeGithubPullRequest = function (branch, title) {
