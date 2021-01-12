@@ -81,7 +81,7 @@ app.use(
       '/marrainage/decline',
       '/notifications/github',
       '/onboarding',
-      '/onboardingSuccess',
+      /onboardingSuccess\/*/,
     ],
   }),
 );
@@ -96,13 +96,15 @@ app.use((req, res, next) => {
 
 app.use((err, req, res, next) => {
   if (err.name === 'UnauthorizedError') {
-    req.flash(
-      'error',
-      "Vous n'étes pas identifié pour accéder à cette page (ou votre accès n'est plus valide)",
-    );
-    // Save the requested url in a query param, and redirect to login
-    const nextParam = req.url ? `?next=${req.url}` : '';
-    return res.redirect(`/login${nextParam}`);
+    // redirect to login and keep the requested url in the '?next=' query param
+    if (req.method === 'GET') {
+      req.flash(
+        'error',
+        "Vous n'êtes pas identifié pour accéder à cette page (ou votre accès n'est plus valide)",
+      );
+      const nextParam = req.url ? `?next=${req.url}` : '';
+      return res.redirect(`/login${nextParam}`);
+    }
   }
   return next(err);
 });
@@ -130,6 +132,6 @@ app.get('/community/:username', communityController.getMember);
 app.get('/admin', adminController.getEmailLists);
 app.get('/onboarding', onboardingController.getForm);
 app.post('/onboarding', onboardingController.postForm);
-app.get('/onboardingSuccess', onboardingController.getConfirmation);
+app.get('/onboardingSuccess/:prNumber', onboardingController.getConfirmation);
 
 module.exports = app.listen(config.port, () => console.log(`Running on port: ${config.port}`));

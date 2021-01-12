@@ -1,12 +1,16 @@
 const chai = require('chai');
 const nock = require('nock');
+const sinon = require('sinon');
 const config = require('../config');
 const app = require('../index');
 const utils = require('./utils.js');
+const knex = require('../db');
+const controllerUtils = require('../controllers/utils');
+const { createEmailAddresses } = require('../schedulers/emailCreationScheduler');
 
 describe('User', () => {
   describe('POST /users/:username/email unauthenticated', () => {
-    it('should redirect to login', (done) => {
+    it('should return an Unauthorized error', (done) => {
       chai.request(app)
         .post('/users/utilisateur.parti/email')
         .type('form')
@@ -14,11 +18,8 @@ describe('User', () => {
           _method: 'POST',
           to_email: 'test@example.com',
         })
-        .redirects(0)
         .end((err, res) => {
-          res.should.have.status(302);
-          res.headers.location.should.include('/login');
-          res.headers.location.should.equal('/login?next=/users/utilisateur.parti/email');
+          res.should.have.status(401);
           done();
         });
     });
@@ -134,18 +135,15 @@ describe('User', () => {
   });
 
   describe('POST /users/:username/redirections unauthenticated', () => {
-    it('should redirect to login', (done) => {
+    it('should return an Unauthorized error', (done) => {
       chai.request(app)
         .post('/users/utilisateur.parti/redirections')
         .type('form')
         .send({
           to_email: 'test@example.com',
         })
-        .redirects(0)
         .end((err, res) => {
-          res.should.have.status(302);
-          res.headers.location.should.include('/login');
-          res.headers.location.should.equal('/login?next=/users/utilisateur.parti/redirections');
+          res.should.have.status(401);
           done();
         });
     });
@@ -208,14 +206,11 @@ describe('User', () => {
   });
 
   describe('POST /users/:username/redirections/:email/delete unauthenticated', () => {
-    it('should redirect to login', (done) => {
+    it('should return an Unauthorized error', (done) => {
       chai.request(app)
         .post('/users/utilisateur.parti/redirections/test@example.com/delete')
-        .redirects(0)
         .end((err, res) => {
-          res.should.have.status(302);
-          res.headers.location.should.include('/login');
-          res.headers.location.should.equal('/login?next=/users/utilisateur.parti/redirections/test@example.com/delete');
+          res.should.have.status(401);
           done();
         });
     });
@@ -266,18 +261,15 @@ describe('User', () => {
   });
 
   describe('POST /users/:username/password unauthenticated', () => {
-    it('should redirect to login', (done) => {
+    it('should return an Unauthorized error', (done) => {
       chai.request(app)
         .post('/users/utilisateur.actif/password')
         .type('form')
         .send({
           new_password: 'Test_Password_1234',
         })
-        .redirects(0)
         .end((err, res) => {
-          res.should.have.status(302);
-          res.headers.location.should.include('/login');
-          res.headers.location.should.equal('/login?next=/users/utilisateur.actif/password');
+          res.should.have.status(401);
           done();
         });
     });
@@ -403,14 +395,11 @@ describe('User', () => {
   });
 
   describe('POST /users/:username/email/delete unauthenticated', () => {
-    it('should redirect to login', (done) => {
+    it('should return an Unauthorized error', (done) => {
       chai.request(app)
         .post('/users/utilisateur.parti/email/delete')
-        .redirects(0)
         .end((err, res) => {
-          res.should.have.status(302);
-          res.headers.location.should.include('/login');
-          res.headers.location.should.equal('/login?next=/users/utilisateur.parti/email/delete');
+          res.should.have.status(401);
           done();
         });
     });
@@ -551,6 +540,83 @@ describe('User', () => {
           ovhRedirectionDeletion.isDone().should.be.true;
           done();
         });
+    });
+  });
+
+  describe('cronjob', () => {
+    beforeEach((done) => {
+      this.sendEmailStub = sinon.stub(controllerUtils, 'sendMail').returns(true);
+      done();
+    });
+
+    afterEach((done) => {
+      knex('users').truncate()
+        .then(() => this.sendEmailStub.restore())
+        .then(() => done());
+    });
+
+    it('should create missing email accounts', (done) => {
+      const ovhEmailCreation = nock(/.*ovh.com/)
+        .post(/^.*email\/domain\/.*\/account/)
+        .reply(200);
+
+      knex('users').insert({
+        username: 'utilisateur.nouveau',
+        secondary_email: 'utilisateur.nouveau.perso@example.com',
+      }).then(async () => {
+        await createEmailAddresses();
+        ovhEmailCreation.isDone().should.be.true;
+        this.sendEmailStub.calledOnce.should.be.true;
+        done();
+      });
+    });
+
+    it('should not create email accounts if already created', (done) => {
+      // For this case we need to reset the basic nocks in order to return
+      // a different response to indicate that newcomer.test has an
+      // email address
+      utils.cleanMocks();
+      utils.mockUsers();
+      utils.mockSlack();
+      utils.mockOvhTime();
+      utils.mockOvhRedirections();
+
+      // We return an email for utilisateur.nouveau to indicate he already has one
+      nock(/.*ovh.com/)
+        .get(/^.*email\/domain\/.*\/account\/.*/)
+        .reply(200, {
+          accountName: 'utilisateur.nouveau',
+          email: 'utilisateur.nouveau@example.com',
+        });
+
+      const ovhEmailCreation = nock(/.*ovh.com/)
+        .post(/^.*email\/domain\/.*\/account/)
+        .reply(200);
+
+      knex('users').insert({
+        username: 'utilisateur.nouveau',
+        secondary_email: 'utilisateur.nouveau.perso@example.com',
+      }).then(async () => {
+        await createEmailAddresses();
+        ovhEmailCreation.isDone().should.be.false;
+        this.sendEmailStub.notCalled.should.be.true;
+        done();
+      });
+    });
+
+    it('should not create email accounts if we dont have the secondary email', (done) => {
+      const ovhEmailCreation = nock(/.*ovh.com/)
+        .post(/^.*email\/domain\/.*\/account/)
+        .reply(200);
+
+      knex('users').insert({
+        username: 'utilisateur.nouveau',
+      }).then(async () => {
+        await createEmailAddresses();
+        ovhEmailCreation.isDone().should.be.false;
+        this.sendEmailStub.notCalled.should.be.true;
+        done();
+      });
     });
   });
 });

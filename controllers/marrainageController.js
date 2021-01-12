@@ -155,14 +155,14 @@ module.exports.acceptRequest = async function (req, res) {
 
     const html = await ejs.renderFile('./views/emails/marrainageAccept.ejs', { newcomer, onboarder });
     try {
-      await utils.sendMail([utils.buildBetaEmail(onboarder.id), utils.buildBetaEmail(newcomer.id), config.senderEmail], 'Mise en contact pour marrainage', html);
+      await utils.sendMail([utils.buildBetaEmail(onboarder.id), utils.buildBetaEmail(newcomer.id), config.senderEmail], 'Mise en contact 👋', html);
     } catch (err) {
       throw new Error(`Erreur d'envoi de mail à l'adresse indiqué ${err}`);
     }
 
     console.log(`Marrainage accepté pour ${newcomer.id}. Marrain·e selectionné·e : ${onboarder.id}`);
 
-    return res.render('marrainage', { errors: undefined });
+    return res.render('marrainage', { errors: undefined, accepted: true });
   } catch (err) {
     console.error(err);
     return res.render('marrainage', { errors: err.message });
@@ -199,17 +199,9 @@ module.exports.declineRequest = async function (req, res) {
 
     await sendOnboarderRequestEmail(newcomer, onboarder, req);
 
-    const html = await ejs.renderFile('./views/emails/marrainageDecline.ejs', { newcomer, declinedOnboarder, onboarder });
-
-    try {
-      await utils.sendMail([utils.buildBetaEmail(newcomer.id)], 'La recherche de marrain·e se poursuit !', html);
-    } catch (err) {
-      throw new Error(`Erreur d'envoi de mail à l'adresse indiqué ${err}`);
-    }
-
     console.log(`Marrainage décliné pour ${newcomer.id}. Ancien·e marrain·e : ${declinedOnboarder.id}. Nouvel.le marrain·e : ${onboarder.id}`);
 
-    return res.render('marrainage', { errors: undefined });
+    return res.render('marrainage', { errors: undefined, accepted: false });
   } catch (err) {
     console.error(err);
     return res.render('marrainage', { errors: err.message });

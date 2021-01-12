@@ -5,6 +5,7 @@ const nock = require('nock');
 const app = require('../index');
 const utils = require('./utils.js');
 const controllerUtils = require('../controllers/utils');
+const knex = require('../db');
 
 describe('Onboarding', () => {
   describe('GET /onboarding', () => {
@@ -39,7 +40,11 @@ describe('Onboarding', () => {
 
       this.makeGithubPullRequest = sinon
         .stub(controllerUtils, 'makeGithubPullRequest')
-        .resolves(true);
+        .resolves({ status: 201, data: { html_url: 'https://example.com/' } });
+
+      this.sendEmailStub = sinon
+        .stub(controllerUtils, 'sendMail')
+        .returns(true);
 
       done();
     });
@@ -49,7 +54,9 @@ describe('Onboarding', () => {
       this.createGithubBranch.restore();
       this.createGithubFile.restore();
       this.makeGithubPullRequest.restore();
-      done();
+      this.sendEmailStub.restore();
+      knex('users').truncate()
+        .then(() => done());
     });
 
     it('should not call Github API if a mandatory field is missing', (done) => {
@@ -234,6 +241,7 @@ describe('Onboarding', () => {
           start: '2020-01-01',
           end: '2021-01-01',
           status: 'Independant',
+          email: 'test@example.com',
         })
         .end((err, res) => {
           this.getGithubMasterSha.calledOnce.should.be.true;
@@ -256,6 +264,7 @@ describe('Onboarding', () => {
           end: '2021-01-01',
           status: 'Independant',
           website: 'https://example.com/me',
+          email: 'test@example.com',
         })
         .end((err, res) => {
           const sha = this.createGithubBranch.args[0][0];
@@ -275,6 +284,7 @@ describe('Onboarding', () => {
           start: '2020-01-01',
           end: '2021-01-01',
           status: 'Independant',
+          email: 'test@example.com',
         })
         .end((err, res) => {
           const branch = this.createGithubBranch.args[0][1];
@@ -294,6 +304,7 @@ describe('Onboarding', () => {
           start: '2020-01-01',
           end: '2021-01-01',
           status: 'Independant',
+          email: 'test@example.com',
         })
         .end((err, res) => {
           const path = this.createGithubFile.args[0][0];
@@ -313,6 +324,7 @@ describe('Onboarding', () => {
           start: '2020-01-01',
           end: '2021-01-01',
           status: 'Independant',
+          email: 'test@example.com',
         })
         .end((err, res) => {
           const branch = this.createGithubBranch.args[0][1];
@@ -333,10 +345,42 @@ describe('Onboarding', () => {
           start: '2020-01-01',
           end: '2021-01-01',
           status: 'Independant',
+          email: 'test@example.com',
         })
         .end((err, res) => {
           const prTitle = this.makeGithubPullRequest.args[0][1];
           prTitle.should.contain('Référent : John Doe.');
+          done();
+        });
+    });
+
+    it('Referent should be notified by email', (done) => {
+      nock.cleanAll();
+
+      nock(/.*ovh.com/)
+        .get(/^.*email\/domain\/.*\/account\/.*utilisateur.actif/)
+        .reply(200, { email: 'utilisateur.actif@example.com' });
+
+      utils.mockUsers();
+
+      chai.request(app)
+        .post('/onboarding')
+        .type('form')
+        .send({
+          firstName: 'Férnàndáô',
+          lastName: 'Úñíbe',
+          referent: 'utilisateur.actif',
+          role: 'Dev',
+          start: '2020-01-01',
+          end: '2021-01-01',
+          status: 'Independant',
+          email: 'test@example.com',
+        })
+        .end((err, res) => {
+          this.sendEmailStub.calledOnce.should.be.true;
+
+          const toEmail = this.sendEmailStub.args[0][0];
+          toEmail.should.equal('utilisateur.actif@example.com');
           done();
         });
     });
@@ -352,6 +396,7 @@ describe('Onboarding', () => {
           start: '2020-01-01',
           end: '2021-01-01',
           status: 'Independant',
+          email: 'test@example.com',
         })
         .end((err, res) => {
           const prTitle = this.makeGithubPullRequest.args[0][1];
@@ -371,6 +416,7 @@ describe('Onboarding', () => {
           start: '2020-01-01',
           end: '2021-01-01',
           status: 'Independant',
+          email: 'test@example.com',
         })
         .end((err, res) => {
           const path = this.createGithubFile.args[0][0];
@@ -390,12 +436,63 @@ describe('Onboarding', () => {
           start: '2020-01-01',
           end: '2021-01-01',
           status: 'Independant',
+          email: 'test@example.com',
         })
         .redirects(0)
         .end((err, res) => {
           res.should.have.status(302);
-          res.headers.location.should.equal('/onboardingSuccess');
+          res.headers.location.should.contain('/onboardingSuccess/');
           done();
+        });
+    });
+
+    it('should store in database the secondary email', (done) => {
+      chai.request(app)
+        .post('/onboarding')
+        .type('form')
+        .send({
+          firstName: 'John',
+          lastName: 'Doe',
+          role: 'Dev',
+          start: '2020-01-01',
+          end: '2021-01-01',
+          status: 'Independant',
+          email: 'test@example.com',
+        })
+        .then(() => knex('users').where({ username: 'john.doe' }))
+        .then((dbRes) => {
+          dbRes.length.should.equal(1);
+          dbRes[0].secondary_email.should.equal('test@example.com');
+        })
+        .then(done)
+        .catch(done);
+    });
+
+    it('DB conflicts in newcomer secondary email should be treated as an update', (done) => {
+      knex('users')
+        .insert({
+          username: 'john.doe',
+          secondary_email: 'test@example.com',
+        }).then(() => {
+          chai.request(app)
+            .post('/onboarding')
+            .type('form')
+            .send({
+              firstName: 'John',
+              lastName: 'Doe',
+              role: 'Dev',
+              start: '2020-01-01',
+              end: '2021-01-01',
+              status: 'Independant',
+              email: 'updated@example.com',
+            })
+            .then(() => knex('users').where({ username: 'john.doe' }))
+            .then((dbRes) => {
+              dbRes.length.should.equal(1);
+              dbRes[0].secondary_email.should.equal('updated@example.com');
+            })
+            .then(done)
+            .catch(done);
         });
     });
   });

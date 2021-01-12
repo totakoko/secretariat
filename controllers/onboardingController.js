@@ -1,9 +1,9 @@
 const ejs = require('ejs');
 const crypto = require('crypto');
-
 const config = require('../config');
 const utils = require('./utils');
 const BetaGouv = require('../betagouv');
+const knex = require('../db');
 
 function createBranchName(username) {
   const refRegex = /( |\.|\\|~|^|:|\?|\*|\[)/gm;
@@ -15,7 +15,7 @@ async function createNewcomerGithubFile(username, content, referent) {
   const branch = createBranchName(username);
   console.log(`Début de la création de fiche pour ${username}...`);
 
-  await utils.getGithubMasterSha()
+  const prInfo = await utils.getGithubMasterSha()
     .then((response) => {
       const { sha } = response.data.object;
       console.log('SHA du master obtenu');
@@ -34,20 +34,25 @@ async function createNewcomerGithubFile(username, content, referent) {
       console.log(`Fiche Github pour ${username} créée dans la branche ${branch}`);
       return utils.makeGithubPullRequest(branch, `Création de fiche pour ${username}. Référent : ${referent || 'pas renseigné'}.`);
     })
-    .then(() => {
+    .then((response) => {
       console.log(`Pull request pour la fiche de ${username} ouverte`);
+      return response;
     })
     .catch((err) => {
       throw new Error(`Erreur Github lors de la création de la fiche de ${username}`);
     });
+  return prInfo;
 }
 
 module.exports.getForm = async function (req, res) {
   try {
     const startups = await BetaGouv.startupsInfos();
     const users = await BetaGouv.usersInfos();
+    const userAgent = Object.prototype.hasOwnProperty.call(req.headers, 'user-agent') ? req.headers['user-agent'] : null;
+    const isMobileFirefox = userAgent && /Android.+Firefox\//.test(userAgent);
     const title = 'Créer ma fiche';
     return res.render('onboarding', {
+      domain: config.domain,
       title,
       errors: req.flash('error'),
       messages: req.flash('message'),
@@ -67,7 +72,9 @@ module.exports.getForm = async function (req, res) {
         startup: '',
         employer: '',
         badge: '',
+        email: '',
       },
+      useSelectList: isMobileFirefox,
     });
   } catch (err) {
     console.error(err);
@@ -108,6 +115,19 @@ module.exports.postForm = async function (req, res) {
       return null;
     }
 
+    function isValidEmail(field, email) {
+      if (!email) {
+        requiredError(field);
+        return null;
+      }
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (emailRegex.test(email)) {
+        return email;
+      }
+      formValidationErrors.push(`${field} : l'adesse email n'est pas valide`);
+      return null;
+    }
+
     const firstName = req.body.firstName || requiredError('prénom');
     const lastName = req.body.lastName || requiredError('nom de famille');
     const description = req.body.description || null;
@@ -119,6 +139,7 @@ module.exports.postForm = async function (req, res) {
     const employer = req.body.employer || null;
     const badge = req.body.badge || null;
     const referent = req.body.referent || null;
+    const email = isValidEmail('email pro/perso', req.body.email);
 
     const website = isValidUrl('Site personnel', req.body.website);
     const github = shouldBeOnlyUsername('Utilisateur Github', req.body.github);
@@ -154,25 +175,49 @@ module.exports.postForm = async function (req, res) {
       employer,
       badge,
     });
-    await createNewcomerGithubFile(username, content, referent);
-    res.redirect('/onboardingSuccess');
+    const prInfo = await createNewcomerGithubFile(username, content, referent);
+
+    if (referent && prInfo.status === 201 && prInfo.data.html_url) {
+      const referentEmailInfos = await BetaGouv.emailInfos(referent);
+      if (referentEmailInfos && referentEmailInfos.email) {
+        const prUrl = prInfo.data.html_url;
+        const memberUrl = `${config.protocol}://${config.host}/community/${username}`;
+        const html = await ejs.renderFile('./views/emails/onboardingReferent.ejs', {
+          referent, prUrl, name, memberUrl,
+        });
+        await utils.sendMail(referentEmailInfos.email, `${name} vient de créer sa fiche Github`, html);
+      }
+    }
+    await knex('users')
+      .insert({
+        username,
+        secondary_email: email,
+      })
+      .onConflict('username')
+      .merge();
+
+    res.redirect(`/onboardingSuccess/${prInfo.data.number}`);
   } catch (err) {
-    req.flash('error', err.message);
     const startups = await BetaGouv.startupsInfos();
+    const users = await BetaGouv.usersInfos();
+    const userAgent = Object.prototype.hasOwnProperty.call(req.headers, 'user-agent') ? req.headers['user-agent'] : null;
+    const isMobileFirefox = userAgent && /Android.+Firefox\//.test(userAgent);
     res.render('onboarding', {
       errors: req.flash('error'),
       messages: req.flash('message'),
       memberConfig: config.member,
       startups,
+      users,
       formData: req.body,
+      useSelectList: isMobileFirefox,
     });
   }
 };
 module.exports.getConfirmation = async function (req, res) {
   try {
-    res.render('onboardingSuccess', {
-      pullRequestsUrl: `https://github.com/${config.githubRepository}/pulls`,
-    });
+    const { prNumber } = req.params;
+    const prUrl = `https://github.com/${config.githubRepository}/pull/${prNumber}`;
+    res.render('onboardingSuccess', { prUrl });
   } catch (err) {
     console.error(err);
     res.redirect('/');
