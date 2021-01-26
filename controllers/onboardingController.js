@@ -4,6 +4,7 @@ const config = require('../config');
 const utils = require('./utils');
 const BetaGouv = require('../betagouv');
 const knex = require('../db');
+const { isValidGithubUserName } = require('../lib/github');
 
 function createBranchName(username) {
   const refRegex = /( |\.|\\|~|^|:|\?|\*|\[)/gm;
@@ -26,7 +27,7 @@ async function createNewcomerGithubFile(username, content, referent) {
       const path = `content/_authors/${username}.md`;
       return utils.createGithubFile(path, branch, content)
         .catch((err) => {
-          if (err.status === 422) throw new Error(`Une fiche avec l'utilisateur ${username} existe déjà`);
+          if (err.status === 422) throw new Error(`Une fiche pour ${username} existe déjà`);
           throw err;
         });
     })
@@ -56,7 +57,7 @@ module.exports.getForm = async function (req, res) {
       title,
       errors: req.flash('error'),
       messages: req.flash('message'),
-      memberConfig: config.member,
+      userConfig: config.user,
       users,
       startups,
       formData: {
@@ -108,10 +109,10 @@ module.exports.postForm = async function (req, res) {
     }
 
     function shouldBeOnlyUsername(field, value) {
-      if (!value || (!value.startsWith('http') && !value.startsWith('https') && !value.includes('/'))) {
+      if (isValidGithubUserName(value)) {
         return value;
       }
-      formValidationErrors.push(`${field} : la valeur doit être le nom d'utilisateur seul et ne doit pas être l'URL de l'utilisateur`);
+      formValidationErrors.push(`${field} : la valeur doit être le nom du membre seul et ne doit pas être l'URL du membre ni commencer avec "@"`);
       return null;
     }
 
@@ -147,8 +148,8 @@ module.exports.postForm = async function (req, res) {
     const startDate = isValidDate('date de début', new Date(start));
     const endDate = isValidDate('date de fin', new Date(end));
     if (startDate && endDate) {
-      if (startDate < new Date(config.member.minStartDate)) {
-        formValidationErrors.push(`date de début : la date doit être au moins ${config.member.minStartDate}`);
+      if (startDate < new Date(config.user.minStartDate)) {
+        formValidationErrors.push(`date de début : la date doit être au moins ${config.user.minStartDate}`);
       }
       if (endDate < startDate) {
         formValidationErrors.push('date de fin : la date doit être supérieure à la date de début');
@@ -181,9 +182,9 @@ module.exports.postForm = async function (req, res) {
       const referentEmailInfos = await BetaGouv.emailInfos(referent);
       if (referentEmailInfos && referentEmailInfos.email) {
         const prUrl = prInfo.data.html_url;
-        const memberUrl = `${config.protocol}://${config.host}/community/${username}`;
+        const userUrl = `${config.protocol}://${config.host}/community/${username}`;
         const html = await ejs.renderFile('./views/emails/onboardingReferent.ejs', {
-          referent, prUrl, name, memberUrl,
+          referent, prUrl, name, userUrl,
         });
         await utils.sendMail(referentEmailInfos.email, `${name} vient de créer sa fiche Github`, html);
       }
@@ -205,7 +206,7 @@ module.exports.postForm = async function (req, res) {
     res.render('onboarding', {
       errors: req.flash('error'),
       messages: req.flash('message'),
-      memberConfig: config.member,
+      userConfig: config.user,
       startups,
       users,
       formData: req.body,

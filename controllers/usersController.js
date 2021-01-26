@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const config = require('../config');
 const BetaGouv = require('../betagouv');
 const utils = require('./utils');
+const { createRequestForUser } = require('./marrainageController');
 
 module.exports.createEmail = async function (username, creator, toEmail) {
   const email = utils.buildBetaEmail(username);
@@ -29,7 +30,7 @@ module.exports.createEmail = async function (username, creator, toEmail) {
 };
 
 module.exports.createEmailForUser = async function (req, res) {
-  const { username } = req.params;
+  const username = req.sanitize(req.params.username);
   const isCurrentUser = req.user.id === username;
 
   try {
@@ -37,18 +38,18 @@ module.exports.createEmailForUser = async function (req, res) {
 
     if (!user.userInfos) {
       throw new Error(
-        `L'utilisateur·rice ${username} n'a pas de fiche sur Github : vous ne pouvez pas créer son compte email.`,
+        `Le membre ${username} n'a pas de fiche sur Github : vous ne pouvez pas créer son compte email.`,
       );
     }
 
     if (user.isExpired) {
       throw new Error(
-        `Le compte de l'utilisateur·rice ${username} est expiré.`,
+        `Le compte du membre ${username} est expiré.`,
       );
     }
 
     if (!user.canCreateEmail) {
-      throw new Error("Vous n'avez pas le droit de créer le compte email de l'utilisateur·rice.");
+      throw new Error("Vous n'avez pas le droit de créer le compte email du membre.");
     }
 
     if (!isCurrentUser) {
@@ -59,6 +60,13 @@ module.exports.createEmailForUser = async function (req, res) {
     }
 
     await module.exports.createEmail(username, req.body.id, req.body.to_email);
+    try {
+      // create marrainage request
+      await createRequestForUser(username);
+    } catch (e) {
+      // marrainage may fail if no member available
+      console.warn(e);
+    }
 
     req.flash('message', 'Le compte email a bien été créé.');
     res.redirect(`/community/${username}`);
@@ -80,13 +88,13 @@ module.exports.createRedirectionForUser = async function (req, res) {
     // TODO: généraliser ce code dans un `app.param("id")` ?
     if (!user.userInfos) {
       throw new Error(
-        `L'utilisateur·rice ${username} n'a pas de fiche sur Github : vous ne pouvez pas créer de redirection.`,
+        `Le membre ${username} n'a pas de fiche sur Github : vous ne pouvez pas créer de redirection.`,
       );
     }
 
     if (user.isExpired) {
       throw new Error(
-        `Le compte de l'utilisateur·rice ${username} est expiré.`,
+        `Le compte du membre ${username} est expiré.`,
       );
     }
 
@@ -129,7 +137,7 @@ module.exports.deleteRedirectionForUser = async function (req, res) {
 
   try {
     const user = await utils.userInfos(username, isCurrentUser);
-    // TODO: vérifier si l'utilisateur·rice existe sur Github ?
+    // TODO: vérifier si le membre existe sur Github ?
 
     if (!user.canCreateRedirection) {
       throw new Error("Vous n'avez pas le droit de supprimer cette redirection.");
@@ -167,13 +175,13 @@ module.exports.updatePasswordForUser = async function (req, res) {
 
     if (!user.userInfos) {
       throw new Error(
-        `L'utilisateur·rice ${username} n'a pas de fiche sur Github : vous ne pouvez pas modifier le mot de passe.`,
+        `Le membre ${username} n'a pas de fiche sur Github : vous ne pouvez pas modifier le mot de passe.`,
       );
     }
 
     if (user.isExpired) {
       throw new Error(
-        `Le compte de l'utilisateur·rice ${username} est expiré.`,
+        `Le compte du membre ${username} est expiré.`,
       );
     }
 

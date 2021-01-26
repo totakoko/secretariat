@@ -63,10 +63,13 @@
 
             <div class="form__group">
                 <label for="github">
-                    <span>Utilisateur Github</span><br />
+                    <span>Nom d'utilisateur Github - sans l'@ et sans l'URL</span><br />
                     Si tu as un compte, tu peux être ajouté à l'organisation Github BetaGouv.
                 </label>
-                <input name="github" pattern="^(?!http://|https://).+" value="<%= formData.github %>" title="Pas d'url, juste ton nom d'utilisateur Github">
+                <input name="github" pattern="^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$"
+                    value="<%= formData.github %>"
+                    title="Pas d'url, juste ton nom d'utilisateur Github sans l'@"
+                    placeholder="Pas d'url, juste ton nom d'utilisateur Github sans l'@">
             </div>
 
 
@@ -84,7 +87,7 @@
                     <strong>Début de la mission (obligatoire)</strong><br />
                     Au format JJ/MM/YYYY
                 </label>
-                <input type="date" name="start" pattern="^\d{4}-\d{2}-\d{2}$" min="<%= memberConfig.minStartDate %>" value="<%= formData.start %>" title="En format YYYY-MM-DD, par exemple : 2020-01-31" required>
+                <input type="date" name="start" pattern="^\d{4}-\d{2}-\d{2}$" min="<%= userConfig.minStartDate %>" value="<%= formData.start %>" title="En format YYYY-MM-DD, par exemple : 2020-01-31" required>
             </div>
 
             <div class="form__group">
@@ -99,7 +102,7 @@
                 <label for="status">
                     <strong>Statut (obligatoire)</strong><br />
                 </label>
-                <% memberConfig.statusOptions.forEach(function(status) { %>
+                <% userConfig.statusOptions.forEach(function(status) { %>
                     <input type="radio" name="status" value="<%= status.value %>" <%= (status.value === formData.status) ? 'checked' : '' %> required><%= status.label %><br>
                 <% }) %>
             </div>
@@ -173,7 +176,7 @@
                 </label>
                 <select name="badge">
                     <option value=""></option>
-                    <% memberConfig.badgeOptions.forEach(function(badge) { %>
+                    <% userConfig.badgeOptions.forEach(function(badge) { %>
                         <option value="<%= badge.value %>" <%= (badge.value === formData.badge) ? 'selected' : '' %>><%= badge.label %></option>
                     <% }) %>
                 </select>
