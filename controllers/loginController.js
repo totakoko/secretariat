@@ -22,22 +22,21 @@ function generateToken() {
   return crypto.randomBytes(256).toString('base64');
 }
 
-async function sendLoginEmail(username, loginUrl, token) {
+async function sendLoginEmail(email, username, loginUrl, token) {
   const user = await BetaGouv.userInfosById(username);
 
   if (!user) {
     throw new Error(
-      `Membre <strong>${username}</strong> inconnu·e sur ${config.domain}. Avez-vous une fiche sur Github ?`,
+      `Membre ${username} inconnu·e sur ${config.domain}. Avez-vous une fiche sur Github ?`,
     );
   }
 
   if (utils.checkUserIsExpired(user)) {
     throw new Error(
-      `Membre <strong>${username}</strong> a une date de fin expiré sur Github.`,
+      `Membre ${username} a une date de fin expiré sur Github.`,
     );
   }
 
-  const email = utils.buildBetaEmail(username);
   const html = await ejs.renderFile('./views/emails/login.ejs', {
     loginUrlWithToken: `${loginUrl}?token=${encodeURIComponent(token)}`,
   });
@@ -75,7 +74,8 @@ module.exports.getLogin = async function (req, res) {
 
 module.exports.postLogin = async function (req, res) {
   const nextParam = req.query.next ? `?next=${req.query.next}` : '';
-  const { username } = req.body;
+  const { username, useSecondaryEmail } = req.body;
+
   if (
     username === undefined
     || !/^[a-z0-9_-]+\.[a-z0-9_-]+$/.test(username)
@@ -89,11 +89,25 @@ module.exports.postLogin = async function (req, res) {
 
   try {
     const token = generateToken();
-    await sendLoginEmail(username, loginUrl, token);
+
+    let email;
+    if (useSecondaryEmail) {
+      const dbResponse = await knex('users').select('secondary_email').where({ username });
+      if (dbResponse.length === 0 || !dbResponse[0].secondary_email) {
+        throw new Error(
+          `Ton compte ${utils.buildBetaEmail(username)} n'a pas d'email secondaire. Si tu ne reçois pas le lien de connexion, tu peux demander de l'aide sur Slack #incubateur-secretariat ou à secretariat@beta.gouv.fr.`,
+        );
+      }
+      email = dbResponse[0].secondary_email;
+    } else {
+      email = utils.buildBetaEmail(username);
+    }
+
+    await sendLoginEmail(email, username, loginUrl, token);
     await saveToken(username, token);
 
     return renderLogin(req, res, {
-      messages: req.flash('message', `Un lien de connexion a été envoyé à l'adresse <strong>${username}@${config.domain}</strong>. Il est valable une heure.`),
+      messages: req.flash('message', `Un lien de connexion a été envoyé à l'adresse ${email}. Il est valable une heure.`),
     });
   } catch (err) {
     console.error(err);
