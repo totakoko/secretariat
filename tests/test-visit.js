@@ -51,7 +51,8 @@ describe('Visit', () => {
         .type('form')
         .send('visitorList=Membre Nouveau')
         .send('visitorList=Julien Dauphant')
-        .send('referent=membre.actif')
+        .send('referentUsername=membre.actif')
+        .send('referent=Membre Actif')
         .send(`number=${encodeURIComponent('+33615415484')}`)
         .send(`date=${date.toISOString()}`)
         .redirects(0)
@@ -100,7 +101,8 @@ describe('Visit', () => {
         .set('Cookie', `token=${utils.getJWT('membre.actif')}`)
         .type('form')
         .send('visitorList=Membre Nouveau')
-        .send('referent=julien.dauphant')
+        .send('referentUsername=julien.dauphant')
+        .send('referent=Julien Dauphant')
         .send(`number=${encodeURIComponent('+33615415484')}`)
         .send(`date=${date.toISOString()}`)
         .redirects(0)
@@ -136,7 +138,8 @@ describe('Visit', () => {
           .type('form')
           .send('visitorList=Membre Nouveau')
           .send('visitorList=Julien Dauphant')
-          .send('referent=membre.actif')
+          .send('referent=Membre Actif')
+          .send('referentUsername=membre.actif')
           .send(`number=${encodeURIComponent('+33615415484')}`)
           .end((err, res) => {
             res.text.should.include('date : le champ n&#39;est pas renseigné');
@@ -154,7 +157,8 @@ describe('Visit', () => {
           .type('form')
           .send('visitorList=Membre Nouveau')
           .send('visitorList=Julien Dauphant')
-          .send('referent=membre.actif')
+          .send('referentUsername=membre.actif')
+          .send('referent=Membre Actif')
           .send(`date=${date.toISOString()}`)
           .end((err, res) => {
             res.text.should.include('numéro : le champ n&#39;est pas renseigné');
@@ -188,13 +192,63 @@ describe('Visit', () => {
           .post('/visit')
           .set('Cookie', `token=${utils.getJWT('membre.expire')}`)
           .type('form')
-          .send('referent=membre.actif')
+          .send('referentUsername=membre.actif')
+          .send('referent=Membre Actif')
           .send(`number=${encodeURIComponent('+33615415484')}`)
           .send(`date=${date.toISOString()}`)
           .end((err, res) => {
             res.text.should.include('visiteurs : le champ n&#39;est pas renseigné');
             done();
           });
+    });
+  });
+
+  describe('authenticated visit endpoint get futur visits lists', () => {
+    it('should show any visits if no visits in the future', async() => {
+      const date = new Date(new Date().setDate(new Date().getDate() - 1 ));
+      date.setHours(0, 0, 0, 0);
+      const inviteRequest1 = {
+        fullname: 'John Doe',
+        referent: 'membre.actif',
+        number: '+33615415484',
+        date,
+        requester: 'membre.actif',
+      };
+      await knex('visits').insert([inviteRequest1]);
+      // use `send` function multiple times instead of json to be able to send visitorList array
+      const res = await chai.request(app)
+        .get('/visit')
+        .set('Cookie', `token=${utils.getJWT('membre.actif')}`)
+      res.text.should.not.include('<td>John Doe</td>');
+    });
+    
+    it('should show visits if visits in the future', async () => {
+      const date = new Date(new Date().setDate(new Date().getDate() + 1));
+      date.setHours(0, 0, 0, 0);
+      const inviteRequest1 = {
+        fullname: 'John Doe',
+        referent: 'membre.actif',
+        number: '+33615415484',
+        date,
+        requester: 'membre.actif',
+      };
+      const inviteRequest2 = {
+        fullname: 'Jean Dupont',
+        referent: 'membre.actif',
+        number: '+33615415484',
+        date,
+        requester: 'membre.actif',
+      };
+      await knex('visits').insert([inviteRequest1, inviteRequest2]);
+      date.setHours(0, 0, 0, 0);
+      // use `send` function multiple times instead of json to be able to send visitorList array
+      const res = await chai.request(app)
+        .get('/visit')
+        .set('Cookie', `token=${utils.getJWT('membre.actif')}`)
+      res.text.should.include('<td>John Doe</td>');
+      res.text.should.include('<td>Membre Actif</td>');
+      res.text.should.include('<td>Jean Dupont</td>');
+      res.text.should.include(`<td>${controllerUtils.formatDateToReadableFormat(date)}</td>`);
     });
   });
 

@@ -104,12 +104,87 @@ module.exports.isValidNumber = (formValidationErrors, field, number) => {
   return null;
 };
 
+module.exports.getWeekNumber = (d) => {
+  d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  let weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+  weekNo = weekNo.toString();
+  return weekNo.length === 1 ? `0${weekNo}` : weekNo;
+};
+
+module.exports.getDateOfISOWeek = (w, y) => {
+  const simple = new Date(y, 0, 1 + (w - 1) * 7);
+  const dow = simple.getDay();
+  const ISOweekStart = simple;
+  if (dow <= 4) ISOweekStart.setDate(simple.getDate() - simple.getDay() + 1);
+  else ISOweekStart.setDate(simple.getDate() + 8 - simple.getDay());
+  return ISOweekStart;
+};
+
 module.exports.formatDateToReadableFormat = (date) => {
   let day = date.getDate().toString();
   day = day.length === 1 ? `0${day}` : day;
   let month = (date.getMonth() + 1).toString();
   month = month.length === 1 ? `0${month}` : month;
   return `${day}/${month}/${date.getFullYear()}`;
+};
+
+module.exports.formatDateToReadableDateAndTimeFormat = (date) => {
+  let day = date.getDate().toString();
+  day = day.length === 1 ? `0${day}` : day;
+
+  let month = (date.getMonth() + 1).toString();
+  month = month.length === 1 ? `0${month}` : month;
+
+  let minutes = date.getMinutes().toString();
+  minutes = minutes.length === 1 ? `0${minutes}` : minutes;
+
+  const hour = date.getHours();
+  return `${day}/${month} à ${hour}:${minutes}`;
+};
+
+module.exports.formatDateToFrenchTextReadableFormat = (date) => {
+  const frenchMonth = [
+    'janvier',
+    'février',
+    'mars',
+    'avril',
+    'mai',
+    'juin',
+    'juillet',
+    'aout',
+    'septembre',
+    'octobre',
+    'novembre',
+    'décembre',
+  ];
+  const day = date.getDate().toString();
+  const month = frenchMonth[date.getMonth()];
+  return `${day} ${month} ${date.getFullYear()}`;
+};
+
+module.exports.NUMBER_OF_DAY_IN_A_WEEK = 7;
+
+module.exports.NUMBER_OF_DAY_FROM_MONDAY = {
+  MONDAY: 0,
+  TUESDAY: 1,
+  WEDNESDAY: 2,
+  THURSDAY: 3,
+  FRIDAY: 4,
+};
+
+module.exports.getMonday = (d) => {
+  d = new Date(d);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day == 0 ? -6 : 1); // adjust when day is sunday
+  return new Date(d.setDate(diff));
+};
+
+module.exports.addDays = (date, days, week) => {
+  const result = new Date(date);
+  result.setDate(result.getDate() + days);
+  return result;
 };
 
 module.exports.userInfos = async function (id, isCurrentUser) {
